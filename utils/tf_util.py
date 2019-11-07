@@ -3,12 +3,9 @@ import sys
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
-sys.path.append(os.path.join(ROOT_DIR, 'tf_ops/sampling'))
-sys.path.append(os.path.join(ROOT_DIR, 'tf_ops/grouping'))
-sys.path.append(os.path.join(ROOT_DIR, 'tf_ops/3d_interpolation'))
-from tf_sampling import farthest_point_sample, gather_point
-from tf_grouping import query_ball_point, group_point, knn_point
-from tf_interpolate import three_nn, three_interpolate
+from pointnet_ops.sample import farthest_point_sample, gather_point
+from pointnet_ops.group import query_ball_point, group_point, knn_point
+from pointnet_ops.interpolate import three_nn, three_interpolate
 import numpy as np
 import tensorflow as tf
 
@@ -116,7 +113,7 @@ def conv2d(inputs,
           outputs = batch_norm_template_multiGPU(outputs, is_training,
                                                  'bn', [0,1,2], bn_decay)
         else:
-          outputs = batch_norm_template(outputs, is_training, 
+          outputs = batch_norm_template(outputs, is_training,
                                         'bn', [0,1,2], bn_decay)
       if gn:
         outputs = group_norm_for_conv(outputs, G=G, scope='gn')
@@ -144,7 +141,7 @@ def spiderConv(feat,
     idx: 3-D tensor variable BxNxk
     delta: 4-D tensor variable BxNxkx3
     num_conv: int
-    taylor_channel: int    
+    taylor_channel: int
     bn: bool, whether to use batch norm
     is_training: bool Tensor variable
     bn_decay: float or float tensor variable in [0,1]
@@ -153,7 +150,7 @@ def spiderConv(feat,
     is_multi_GPU: bool, whether to use multi GPU
     activation_fn: function
     scope: string
-    
+
 
   Returns:
     feat: 3-D tensor variable BxNxC
@@ -177,18 +174,18 @@ def spiderConv(feat,
 
       #initialize
       initializer = tf.contrib.layers.xavier_initializer()
-      
+
       w_x = tf.tile(_variable_on_cpu('weight_x', shape, initializer), [batch_size, num_point, K_knn, 1])
       w_y = tf.tile(_variable_on_cpu('weight_y', shape, initializer), [batch_size, num_point, K_knn, 1])
       w_z = tf.tile(_variable_on_cpu('weight_z', shape, initializer), [batch_size, num_point, K_knn, 1])
       w_xyz = tf.tile(_variable_on_cpu('weight_xyz', shape, initializer), [batch_size, num_point, K_knn, 1])
-      
+
       w_xy = tf.tile(_variable_on_cpu('weight_xy', shape, initializer), [batch_size, num_point, K_knn, 1])
       w_yz = tf.tile(_variable_on_cpu('weight_yz', shape, initializer), [batch_size, num_point, K_knn, 1])
       w_xz = tf.tile(_variable_on_cpu('weight_xz', shape, initializer), [batch_size, num_point, K_knn, 1])
-      biases = tf.tile(_variable_on_cpu('biases', shape, 
+      biases = tf.tile(_variable_on_cpu('biases', shape,
                         tf.constant_initializer(0.0)), [batch_size, num_point, K_knn, 1])
-      
+
       w_xx = tf.tile(_variable_on_cpu('weight_xx', shape, initializer), [batch_size, num_point, K_knn, 1])
       w_yy = tf.tile(_variable_on_cpu('weight_yy', shape, initializer), [batch_size, num_point, K_knn, 1])
       w_zz = tf.tile(_variable_on_cpu('weight_zz', shape, initializer), [batch_size, num_point, K_knn, 1])
@@ -201,12 +198,12 @@ def spiderConv(feat,
       w_yyz = tf.tile(_variable_on_cpu('weight_yyz', shape, initializer), [batch_size, num_point, K_knn, 1])
       w_yzz = tf.tile(_variable_on_cpu('weight_yzz', shape, initializer), [batch_size, num_point, K_knn, 1])
 
-      
+
       w_xxx = tf.tile(_variable_on_cpu('weight_xxx', shape, initializer), [batch_size, num_point, K_knn, 1])
       w_yyy = tf.tile(_variable_on_cpu('weight_yyy', shape, initializer), [batch_size, num_point, K_knn, 1])
       w_zzz = tf.tile(_variable_on_cpu('weight_zzz', shape, initializer), [batch_size, num_point, K_knn, 1])
 
-      
+
       g1 = w_x * X + w_y * Y + w_z * Z + w_xyz * X * Y * Z
       g2 = w_xy * X * Y + w_yz * Y * Z + w_xz * X * Z + biases
       g3 = w_xx * X * X + w_yy * Y * Y + w_zz * Z * Z
@@ -229,7 +226,7 @@ def spiderConv(feat,
                     gn=gn, G=G, is_multi_GPU=is_multi_GPU,
                     activation_fn=activation_fn)
 
-      
+
       feat = tf.squeeze(feat, axis=[2])
 
       return feat
@@ -240,22 +237,22 @@ def pc_sampling(xyz,
                 num_point,
                 scope='sampling'):
   """ Fully connected layer with non-linear operation.
-  
+
   Args:
     xyz: 3-D tensor B x N x 3
     nsample: k
     num_point: N2
     feat: 3-D tensor B x N x C
-  
+
   Returns:
     feat_sample: 3-D tensor B x N2 x C
   """
   with tf.variable_scope(scope) as sc:
     xyz_new = gather_point(xyz, farthest_point_sample(num_point, xyz))
     _, idx_pooling = knn_point(nsample, xyz, xyz_new)
-    
+
     grouped_points = group_point(feat, idx_pooling)
-    feat_sample = tf.nn.max_pool(grouped_points, [1,1,nsample,1], [1,1,1,1], 
+    feat_sample = tf.nn.max_pool(grouped_points, [1,1,nsample,1], [1,1,1,1],
     			padding='VALID', data_format='NHWC', name="MAX_POOLING")
     feat_sample = tf.squeeze(feat_sample, axis=[2])
 
@@ -266,12 +263,12 @@ def pc_upsampling(xyz_upsample,
                   feat,
                   scope='upsampling'):
   """ Fully connected layer with non-linear operation.
-  
+
   Args:
     xyz_upsample: 3-D tensor B x N2 x 3
     xyz: 3-D tensor B x N x 3
     feat: 3-D tensor B x N x C
-  
+
   Returns:
     feat_upsample: 3-D tensor B x N2 x C
   """
@@ -300,11 +297,11 @@ def fully_connected(inputs,
                     gn=False,
                     G=32):
   """ Fully connected layer with non-linear operation.
-  
+
   Args:
     inputs: 2-D tensor BxN
     num_outputs: int
-  
+
   Returns:
     Variable tensor of size B x num_outputs.
   """
@@ -319,13 +316,13 @@ def fully_connected(inputs,
     biases = _variable_on_cpu('biases', [num_outputs],
                              tf.constant_initializer(0.0))
     outputs = tf.nn.bias_add(outputs, biases)
-     
+
     if bn:
       if is_multi_GPU:
         outputs = batch_norm_template_multiGPU(outputs, is_training,
                                                'bn', [0,], bn_decay)
       else:
-        outputs = batch_norm_template(outputs, is_training, 
+        outputs = batch_norm_template(outputs, is_training,
                                       'bn', [0,], bn_decay)
     if gn:
       outputs = group_norm_for_fc(outputs, G=G, scope='gn')
@@ -346,7 +343,7 @@ def max_pool2d(inputs,
     inputs: 4-D tensor BxHxWxC
     kernel_size: a list of 2 ints
     stride: a list of 2 ints
-  
+
   Returns:
     Variable tensor
   """
@@ -367,7 +364,7 @@ def topk_pool(inputs,
 
   Args:
     inputs: 4-D tensor BxHxWxC
-  
+
   Returns:
     Variable tensor
   """
@@ -387,7 +384,7 @@ def avg_pool2d(inputs,
     inputs: 4-D tensor BxHxWxC
     kernel_size: a list of 2 ints
     stride: a list of 2 ints
-  
+
   Returns:
     Variable tensor
   """
@@ -429,7 +426,7 @@ def group_norm_for_conv(x, G=32, esp=1e-6, scope='gn'):
     return output
 
 def group_norm_for_fc(x, G=32, esp=1e-6, scope='gn'):
-  with tf.variable_scope(scope) as sc:  
+  with tf.variable_scope(scope) as sc:
     # normalize
     # tranpose: [bs, h, w, c] to [bs, c, h, w] following the paper
     N, C = x.get_shape().as_list()
@@ -446,7 +443,7 @@ def group_norm_for_fc(x, G=32, esp=1e-6, scope='gn'):
     beta = tf.reshape(beta, [1, C])
 
     output = tf.reshape(x, [N, C]) * gamma + beta
-    
+
     return output
 
 
@@ -454,7 +451,7 @@ def group_norm_for_fc(x, G=32, esp=1e-6, scope='gn'):
 def batch_norm_template(inputs, is_training, scope, moments_dims, bn_decay):
   """ Batch normalization on convolutional maps and beyond...
   Ref.: http://stackoverflow.com/questions/33949786/how-could-i-use-batch-normalization-in-tensorflow
-  
+
   Args:
       inputs:        Tensor, k-D input ... x C could be BC or BHWC or BDHWC
       is_training:   boolean tf.Varialbe, true indicates training phase
@@ -477,12 +474,12 @@ def batch_norm_template(inputs, is_training, scope, moments_dims, bn_decay):
     ema_apply_op = tf.cond(is_training,
                            lambda: ema.apply([batch_mean, batch_var]),
                            lambda: tf.no_op())
-    
+
     # Update moving average and return current batch's avg and var.
     def mean_var_with_update():
       with tf.control_dependencies([ema_apply_op]):
         return tf.identity(batch_mean), tf.identity(batch_var)
-    
+
     # ema.average returns the Variable holding the average of var.
     mean, var = tf.cond(is_training,
                         mean_var_with_update,
@@ -493,7 +490,7 @@ def batch_norm_template(inputs, is_training, scope, moments_dims, bn_decay):
 def batch_norm_template_multiGPU(inputs, is_training, scope, moments_dims_unused, bn_decay, data_format='NHWC'):
   """ Batch normalization on convolutional maps and beyond...
   Ref.: http://stackoverflow.com/questions/33949786/how-could-i-use-batch-normalization-in-tensorflow
-  
+
   Args:
       inputs:        Tensor, k-D input ... x C could be BC or BHWC or BDHWC
       is_training:   boolean tf.Varialbe, true indicates training phase
@@ -505,7 +502,7 @@ def batch_norm_template_multiGPU(inputs, is_training, scope, moments_dims_unused
       normed:        batch-normalized maps
   """
   bn_decay = bn_decay if bn_decay is not None else 0.9
-  return tf.contrib.layers.batch_norm(inputs, 
+  return tf.contrib.layers.batch_norm(inputs,
                                       center=True, scale=True,
                                       is_training=is_training, decay=bn_decay,updates_collections=None,
                                       scope=scope,

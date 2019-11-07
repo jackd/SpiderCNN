@@ -7,12 +7,10 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 sys.path.append(os.path.join(BASE_DIR, '../utils'))
-sys.path.append(os.path.join(BASE_DIR, '../tf_ops/sampling'))
-sys.path.append(os.path.join(BASE_DIR, '../tf_ops/grouping'))
 
 import tf_util
-from tf_grouping import query_ball_point, group_point, knn_point
-from tf_sampling import farthest_point_sample, gather_point
+from pointnet_ops.group import query_ball_point, group_point, knn_point
+from pointnet_ops.sample import farthest_point_sample, gather_point
 
 
 
@@ -25,29 +23,29 @@ def get_model(xyz_withnor, is_training, bn_decay=None, num_classes=40):
     taylor_channel = 3
 
     xyz = xyz_withnor[:, :, 0:3]
-    
+
     with tf.variable_scope('delta') as sc:
         _, idx = knn_point(K_knn, xyz, xyz)
-        
-        grouped_xyz = group_point(xyz, idx)   
+
+        grouped_xyz = group_point(xyz, idx)
         point_cloud_tile = tf.expand_dims(xyz, [2])
         point_cloud_tile = tf.tile(point_cloud_tile, [1, 1, K_knn, 1])
         delta = grouped_xyz - point_cloud_tile
 
     with tf.variable_scope('SpiderConv1') as sc:
-        feat_1 = tf_util.spiderConv(xyz_withnor, idx, delta, 32, taylor_channel = taylor_channel, 
+        feat_1 = tf_util.spiderConv(xyz_withnor, idx, delta, 32, taylor_channel = taylor_channel,
                                         bn=True, is_training=is_training, bn_decay=bn_decay)
 
     with tf.variable_scope('SpiderConv2') as sc:
-        feat_2 = tf_util.spiderConv(feat_1, idx, delta, 64, taylor_channel = taylor_channel, 
+        feat_2 = tf_util.spiderConv(feat_1, idx, delta, 64, taylor_channel = taylor_channel,
                                         bn=True, is_training=is_training, bn_decay=bn_decay)
 
     with tf.variable_scope('SpiderConv3') as sc:
-        feat_3 = tf_util.spiderConv(feat_2, idx, delta, 128, taylor_channel = taylor_channel, 
+        feat_3 = tf_util.spiderConv(feat_2, idx, delta, 128, taylor_channel = taylor_channel,
                                         bn=True, is_training=is_training, bn_decay=bn_decay)
 
     with tf.variable_scope('SpiderConv4') as sc:
-        feat_4 = tf_util.spiderConv(feat_3, idx, delta, 256, taylor_channel = taylor_channel, 
+        feat_4 = tf_util.spiderConv(feat_3, idx, delta, 256, taylor_channel = taylor_channel,
                                         bn=True, is_training=is_training, bn_decay=bn_decay)
 
 
@@ -55,7 +53,7 @@ def get_model(xyz_withnor, is_training, bn_decay=None, num_classes=40):
 
     #top-k pooling
     net = tf_util.topk_pool(feat, k = 2, scope='topk_pool')
-    
+
     net = tf.reshape(net, [batch_size, -1])
     net = tf_util.fully_connected(net, 512, bn=True, is_training=is_training,
                                   scope='fc1', bn_decay=bn_decay)

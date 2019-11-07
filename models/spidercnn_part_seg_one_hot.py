@@ -6,7 +6,7 @@ sys.path.append(os.path.join(BASE_DIR, '../utils'))
 import tensorflow as tf
 import numpy as np
 import tf_util
-from tf_grouping import query_ball_point, group_point, knn_point
+from pointnet_ops.group import query_ball_point, group_point, knn_point
 
 def placeholder_inputs(batch_size, num_point):
     pointclouds_pl = tf.placeholder(tf.float32, shape=(batch_size, num_point, 6))
@@ -24,29 +24,29 @@ def get_model(xyz_withnor, cls_label, is_training, bn_decay=None, num_classes=50
     taylor_channel = 3
 
     xyz = xyz_withnor[:, :, 0:3]
-    
+
     with tf.variable_scope('delta') as sc:
         _, idx = knn_point(K_knn, xyz, xyz)
-        
-        grouped_xyz = group_point(xyz, idx)   
+
+        grouped_xyz = group_point(xyz, idx)
         point_cloud_tile = tf.expand_dims(xyz, [2])
         point_cloud_tile = tf.tile(point_cloud_tile, [1, 1, K_knn, 1])
         delta = grouped_xyz - point_cloud_tile
 
     with tf.variable_scope('SpiderConv1') as sc:
-        feat_1 = tf_util.spiderConv(xyz_withnor, idx, delta, 32, taylor_channel = taylor_channel, 
+        feat_1 = tf_util.spiderConv(xyz_withnor, idx, delta, 32, taylor_channel = taylor_channel,
                                         bn=True, is_training=is_training, bn_decay=bn_decay)
 
     with tf.variable_scope('SpiderConv2') as sc:
-        feat_2 = tf_util.spiderConv(feat_1, idx, delta, 64, taylor_channel = taylor_channel, 
+        feat_2 = tf_util.spiderConv(feat_1, idx, delta, 64, taylor_channel = taylor_channel,
                                         bn=True, is_training=is_training, bn_decay=bn_decay)
 
     with tf.variable_scope('SpiderConv3') as sc:
-        feat_3 = tf_util.spiderConv(feat_2, idx, delta, 128, taylor_channel = taylor_channel, 
+        feat_3 = tf_util.spiderConv(feat_2, idx, delta, 128, taylor_channel = taylor_channel,
                                         bn=True, is_training=is_training, bn_decay=bn_decay)
 
     with tf.variable_scope('SpiderConv4') as sc:
-        feat_4 = tf_util.spiderConv(feat_3, idx, delta, 256, taylor_channel = taylor_channel, 
+        feat_4 = tf_util.spiderConv(feat_3, idx, delta, 256, taylor_channel = taylor_channel,
                                         bn=True, is_training=is_training, bn_decay=bn_decay)
 
     point_feat = tf.concat([feat_1, feat_2, feat_3, feat_4], 2)
@@ -65,7 +65,7 @@ def get_model(xyz_withnor, cls_label, is_training, bn_decay=None, num_classes=50
     global_fea_expand = tf.tile(global_fea, [1, num_point, 1, 1])
     point_feat = tf.expand_dims(point_feat, 2)
     global_point_fea = tf.concat([global_fea_expand, point_feat], 3)
-    
+
     net = tf_util.conv2d(global_point_fea, 256, [1,1], padding='VALID', stride=[1,1], bn_decay=bn_decay,
                         bn=True, is_training=is_training, scope='seg/conv1')
     net = tf_util.dropout(net, keep_prob=0.8, is_training=is_training, scope='seg/dp1')
@@ -74,7 +74,7 @@ def get_model(xyz_withnor, cls_label, is_training, bn_decay=None, num_classes=50
     net = tf_util.dropout(net, keep_prob=0.8, is_training=is_training, scope='seg/dp2')
     net = tf_util.conv2d(net, 128, [1,1], padding='VALID', stride=[1,1], bn_decay=bn_decay,
                         bn=True, is_training=is_training, scope='seg/conv3')
-    net = tf_util.conv2d(net, num_classes, [1,1], padding='VALID', stride=[1,1], activation_fn=None, 
+    net = tf_util.conv2d(net, num_classes, [1,1], padding='VALID', stride=[1,1], activation_fn=None,
                         bn=False, scope='seg/conv4')
 
     net = tf.reshape(net, [batch_size, num_point, num_classes])

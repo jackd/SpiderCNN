@@ -45,7 +45,7 @@ EPOCH_CNT = 0
 NUM_GPUS = FLAGS.num_gpus
 BATCH_SIZE = FLAGS.batch_size
 assert(BATCH_SIZE % NUM_GPUS == 0)
-DEVICE_BATCH_SIZE = BATCH_SIZE / NUM_GPUS
+DEVICE_BATCH_SIZE = BATCH_SIZE // NUM_GPUS
 
 NUM_POINT = FLAGS.num_point
 MAX_EPOCH = FLAGS.max_epoch
@@ -140,7 +140,7 @@ def get_learning_rate(batch):
                         DECAY_RATE,          # Decay rate.
                         staircase=True)
     learning_rate = tf.maximum(learning_rate, 0.00001) # CLIP THE LEARNING RATE!
-    return learning_rate        
+    return learning_rate
 
 def get_bn_decay(batch):
     bn_momentum = tf.train.exponential_decay(
@@ -158,8 +158,8 @@ def train():
             pointclouds_pl = tf.placeholder(tf.float32, shape=(BATCH_SIZE, NUM_POINT, 3))
             labels_pl = tf.placeholder(tf.int32, shape=(BATCH_SIZE))
             is_training_pl = tf.placeholder(tf.bool, shape=())
-            
-            # Note the global_step=batch parameter to minimize. 
+
+            # Note the global_step=batch parameter to minimize.
             # That tells the optimizer to helpfully increment the 'batch' parameter
             # for you every time it trains.
             batch = tf.get_variable('batch', [],
@@ -181,7 +181,7 @@ def train():
             # Allocating variables on CPU first will greatly accelerate multi-gpu training.
             # Ref: https://github.com/kuza55/keras-extras/issues/21
             MODEL.get_model(pointclouds_pl, is_training_pl, bn_decay=bn_decay, num_classes=NUM_CLASSES)
-            
+
             tower_grads = []
             pred_gpu = []
             total_loss_gpu = []
@@ -209,12 +209,12 @@ def train():
 
                         pred_gpu.append(pred)
                         total_loss_gpu.append(total_loss)
-            
+
             # Merge pred and losses from multiple GPUs
             pred = tf.concat(pred_gpu, 0)
             total_loss = tf.reduce_mean(total_loss_gpu)
 
-            # Get training operator 
+            # Get training operator
             grads = average_gradients(tower_grads)
             train_op = optimizer.apply_gradients(grads, global_step=batch)
 
@@ -224,7 +224,7 @@ def train():
 
         # Add ops to save and restore all the variables.
         saver = tf.train.Saver()
-        
+
         # Create a session
         config = tf.ConfigProto()
         config.gpu_options.allow_growth = True
@@ -255,10 +255,10 @@ def train():
         for epoch in range(MAX_EPOCH):
             log_string('**** EPOCH %03d ****' % (epoch))
             sys.stdout.flush()
-             
+
             train_one_epoch(sess, ops, train_writer)
             eval_acc = eval_one_epoch(sess, ops, test_writer)
-            
+
             # Save the variables to disk.
             if eval_acc > eval_acc_max:
                 max_save_path = saver.save(sess, os.path.join(LOG_DIR, 'model_max.ckpt'))
@@ -275,29 +275,29 @@ def train():
 def train_one_epoch(sess, ops, train_writer):
     """ ops: dict mapping from string to tf ops """
     is_training = True
-    
+
     # Shuffle train files
     train_file_idxs = np.arange(0, len(TRAIN_FILES))
     np.random.shuffle(train_file_idxs)
-    
+
     for fn in range(len(TRAIN_FILES)):
         log_string('----' + str(fn) + '-----')
         current_data, current_label, _ = provider.loadDataFile_with_normal(TRAIN_FILES[train_file_idxs[fn]])
         current_data = current_data[:,0:NUM_POINT,:]
-        current_data, current_label, _ = provider.shuffle_data(current_data, np.squeeze(current_label))           
+        current_data, current_label, _ = provider.shuffle_data(current_data, np.squeeze(current_label))
         current_label = np.squeeze(current_label)
 
         file_size = current_data.shape[0]
         num_batches = file_size // BATCH_SIZE
-        
+
         total_correct = 0
         total_seen = 0
         loss_sum = 0
-       
+
         for batch_idx in range(num_batches):
             start_idx = batch_idx * BATCH_SIZE
             end_idx = (batch_idx+1) * BATCH_SIZE
-            
+
             # Augment batched point clouds by rotation and jittering
             rotated_data = provider.rotate_point_cloud(current_data[start_idx:end_idx, :, :])
             jittered_data = provider.jitter_point_cloud(rotated_data)
@@ -313,11 +313,11 @@ def train_one_epoch(sess, ops, train_writer):
             total_correct += correct
             total_seen += BATCH_SIZE
             loss_sum += loss_val
-        
+
         log_string('mean loss: %f' % (loss_sum / float(num_batches)))
         log_string('accuracy: %f' % (total_correct / float(total_seen)))
 
-        
+
 def eval_one_epoch(sess, ops, test_writer):
     """ ops: dict mapping from string to tf ops """
     is_training = False
@@ -326,7 +326,7 @@ def eval_one_epoch(sess, ops, test_writer):
     loss_sum = 0
     total_seen_class = [0 for _ in range(NUM_CLASSES)]
     total_correct_class = [0 for _ in range(NUM_CLASSES)]
-    
+
     for fn in range(len(TEST_FILES)):
         log_string('----' + str(fn) + '-----')
         current_data, current_label, _ = provider.loadDataFile_with_normal(TEST_FILES[fn])
@@ -335,7 +335,7 @@ def eval_one_epoch(sess, ops, test_writer):
 
         file_size = current_data.shape[0]
         num_batches = file_size // BATCH_SIZE
-        
+
         for batch_idx in range(num_batches):
             start_idx = batch_idx * BATCH_SIZE
             end_idx = (batch_idx+1) * BATCH_SIZE
@@ -354,7 +354,7 @@ def eval_one_epoch(sess, ops, test_writer):
                 l = current_label[i]
                 total_seen_class[l] += 1
                 total_correct_class[l] += (pred_val[i-start_idx] == l)
-            
+
     log_string('eval mean loss: %f' % (loss_sum / float(total_seen)))
     log_string('eval accuracy: %f'% (total_correct / float(total_seen)))
     log_string('eval avg class acc: %f' % (np.mean(np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float))))
